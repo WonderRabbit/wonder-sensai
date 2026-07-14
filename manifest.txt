@@ -1,0 +1,14 @@
+opencode.json
+agents/sensai-analysis-lead.md
+agents/sensai-evidence-peer.md
+commands/sensai/analyze.md
+commands/sensai/design.md
+commands/sensai/verify.md
+skills/sensai-evidence-first/SKILL.md
+skills/sensai-mermaid-sequence/SKILL.md
+skills/sensai-react-trace/SKILL.md
+skills/sensai-spec-evidence/SKILL.md
+skills/sensai-ui-definition/SKILL.md
+skills/sensai-vertx-trace/SKILL.md
+recipes/trace.jq
+recipes/provenance.jq
