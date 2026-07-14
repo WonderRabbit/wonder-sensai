@@ -1,0 +1,11 @@
+openapi: 3.0.3
+info:
+  title: 주문 조회 예제 API
+  version: 1.0.0
+paths:
+  /api/orders:
+    get:
+      operationId: listOrders
+      responses:
+        "200":
+          description: 주문 목록 응답

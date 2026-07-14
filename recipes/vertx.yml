@@ -1,0 +1,21 @@
+id: sensai-vertx-candidate
+language: Java
+severity: warning
+message: Vert.x HTTP 또는 이벤트 버스 후보를 확인한다.
+rule:
+  any:
+    - pattern: Router.router($VERTX)
+    - pattern: $ROUTER.get($PATH).handler($HANDLER)
+    - pattern: $ROUTER.post($PATH).handler($HANDLER)
+    - pattern: $ROUTER.put($PATH).handler($HANDLER)
+    - pattern: $ROUTER.patch($PATH).handler($HANDLER)
+    - pattern: $ROUTER.delete($PATH).handler($HANDLER)
+    - pattern: $BUS.consumer($ADDRESS, $$$ARGS)
+    - pattern: $BUS.request($ADDRESS, $$$ARGS)
+    - pattern: $BUS.send($ADDRESS, $$$ARGS)
+    - pattern: $BUS.publish($ADDRESS, $$$ARGS)
+    - pattern: $VERTX.eventBus().consumer($ADDRESS, $$$ARGS)
+    - pattern: $VERTX.eventBus().request($ADDRESS, $$$ARGS)
+    - pattern: $VERTX.eventBus().send($ADDRESS, $$$ARGS)
+    - pattern: $VERTX.eventBus().publish($ADDRESS, $$$ARGS)
+note: 후보를 확정하기 전에 변수 정의, HTTP 메서드, 경로, address, reply 또는 failure 연결과 path:line을 확인한다.

@@ -1,0 +1,336 @@
+#!/bin/sh
+set -u
+
+ROOT=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
+MANIFEST=$ROOT/manifest.txt
+TRACE_CHECK=$ROOT/recipes/trace.jq
+FIXTURE=$ROOT/fixtures/legacy-project
+EXPECTED_MANAGED_COUNT=14
+
+say() { printf '%s\n' "$*"; }
+fail() { code=$1; shift; say "ERROR $*" >&2; exit "$code"; }
+usage() {
+  say "usage: sensai validate [trace FILE] | fixture | stage TARGET | doctor [tools|models|default] | install [TARGET]" >&2
+  exit 64
+}
+
+validate_manifest() {
+  [ -f "$MANIFEST" ] || return 65
+  awk -v expected="$EXPECTED_MANAGED_COUNT" '
+    BEGIN { count = 0; bad = 0; trace = 0; provenance = 0 }
+    {
+      count++
+      if ($0 == "" || $0 ~ /^\// || $0 ~ /(^|\/)\.\.(\/|$)/ || seen[$0]++) bad = 1
+      if ($0 == "recipes/trace.jq") trace++
+      if ($0 == "recipes/provenance.jq") provenance++
+    }
+    END { if (count != expected || bad || trace != 1 || provenance != 1) exit 1 }
+  ' "$MANIFEST" || return 65
+
+  while IFS= read -r leaf; do
+    [ -f "$ROOT/$leaf" ] || return 65
+    [ ! -L "$ROOT/$leaf" ] || return 65
+    [ -s "$ROOT/$leaf" ] || return 65
+  done < "$MANIFEST"
+  return 0
+}
+
+validate_trace() {
+  trace_file=$1
+  [ -f "$trace_file" ] || return 65
+  [ ! -L "$trace_file" ] || return 65
+  jq -e -f "$TRACE_CHECK" "$trace_file" >/dev/null 2>&1 || return 65
+  return 0
+}
+
+resolve_tools() {
+  SENSAI_FD=
+  SENSAI_AST=
+  SENSAI_OPENCODE_VERSION=
+
+  if command -v fd >/dev/null 2>&1 && fd --version 2>/dev/null | sed -n '1p' | grep -Eq '^fd [0-9]'; then
+    SENSAI_FD=fd
+  elif command -v fdfind >/dev/null 2>&1 && fdfind --version 2>/dev/null | sed -n '1p' | grep -Eq '^fd [0-9]'; then
+    SENSAI_FD=fdfind
+  else
+    return 69
+  fi
+
+  command -v rg >/dev/null 2>&1 && rg --version 2>/dev/null | sed -n '1p' | grep -Eq '^ripgrep [0-9]' || return 69
+
+  if command -v ast-grep >/dev/null 2>&1 && ast-grep --version 2>/dev/null | sed -n '1p' | grep -Eq '^ast-grep [0-9]'; then
+    SENSAI_AST=ast-grep
+  elif command -v sg >/dev/null 2>&1 && sg --version 2>/dev/null | sed -n '1p' | grep -Eq '^ast-grep [0-9]'; then
+    SENSAI_AST=sg
+  else
+    return 69
+  fi
+
+  command -v yq >/dev/null 2>&1 && yq --version 2>/dev/null | sed -n '1p' | grep -Eq 'github\.com/mikefarah/yq/.*version v?4\.' || return 69
+  command -v jq >/dev/null 2>&1 && jq --version 2>/dev/null | sed -n '1p' | grep -Eq '^jq-[0-9]' || return 69
+  command -v mdq >/dev/null 2>&1 && mdq --version 2>/dev/null | sed -n '1p' | grep -Eq '^mdq [0-9]' || return 69
+  command -v mmdc >/dev/null 2>&1 && mmdc --version 2>/dev/null | sed -n '1p' | grep -Eq '^[0-9]+\.' || return 69
+  if command -v opencode >/dev/null 2>&1; then
+    SENSAI_OPENCODE_VERSION=$(opencode --version 2>/dev/null | sed -n '1s/^v\{0,1\}\([0-9][0-9]*\)\.\([0-9][0-9]*\)\.\([0-9][0-9]*\).*$/\1 \2 \3/p')
+  fi
+  [ -n "$SENSAI_OPENCODE_VERSION" ] || return 69
+  set -- $SENSAI_OPENCODE_VERSION
+  [ "$1" -eq 1 ] && { [ "$2" -gt 17 ] || { [ "$2" -eq 17 ] && [ "$3" -ge 18 ]; }; } || return 69
+  SENSAI_OPENCODE_VERSION=$1.$2.$3
+  command -v curl >/dev/null 2>&1 || return 69
+  return 0
+}
+
+doctor_tools() {
+  if resolve_tools; then
+    say "OPENCODE_VERSION=$SENSAI_OPENCODE_VERSION"
+    say "OPENCODE_SUPPORTED=1.x>=1.17.18"
+    say "TOOLS_ADMISSION=READY"
+    return 0
+  fi
+  say "TOOLS_ADMISSION=BLOCKED"
+  return 69
+}
+
+doctor_models() {
+  if [ -z "${SENSAI_QWEN_BASE_URL:-}" ] || [ -z "${SENSAI_QWEN_API_KEY:-}" ]; then
+    say "MODEL_DISCOVERY=BLOCKED"
+    say "MODEL_TOOL_ADMISSION=BLOCKED"
+    say "MODEL_ADMISSION=BLOCKED"
+    return 69
+  fi
+  command -v curl >/dev/null 2>&1 || { say "MODEL_DISCOVERY=BLOCKED"; say "MODEL_TOOL_ADMISSION=BLOCKED"; say "MODEL_ADMISSION=BLOCKED"; return 69; }
+  command -v jq >/dev/null 2>&1 || { say "MODEL_DISCOVERY=BLOCKED"; say "MODEL_TOOL_ADMISSION=BLOCKED"; say "MODEL_ADMISSION=BLOCKED"; return 69; }
+
+  model_tmp=$(mktemp "${TMPDIR:-/tmp}/sensai-models.XXXXXX") || return 75
+  if ! curl -fsS --max-time 15 -H "Authorization: Bearer $SENSAI_QWEN_API_KEY" "${SENSAI_QWEN_BASE_URL%/}/models" > "$model_tmp"; then
+    rm -f "$model_tmp"
+    say "MODEL_DISCOVERY=BLOCKED"
+    say "MODEL_TOOL_ADMISSION=BLOCKED"
+    say "MODEL_ADMISSION=BLOCKED"
+    return 75
+  fi
+  if ! jq -e 'type == "object" and (.data | type == "array") and all(.data[]; type == "object" and (.id | type == "string"))' "$model_tmp" >/dev/null 2>&1; then
+    rm -f "$model_tmp"
+    say "MODEL_DISCOVERY=INVALID"
+    say "MODEL_TOOL_ADMISSION=BLOCKED"
+    say "MODEL_ADMISSION=BLOCKED"
+    return 65
+  fi
+  if jq -e '
+      (.data // []) as $models |
+      any($models[]; .id == "qwen3.6-35b-a3b") and
+      any($models[]; .id == "qwen3.5-9b")
+    ' "$model_tmp" >/dev/null 2>&1; then
+    rm -f "$model_tmp"
+    say "MODEL_ALIAS_35B=qwen3.6-35b-a3b"
+    say "MODEL_ALIAS_9B=qwen3.5-9b"
+    say "MODEL_DISCOVERY=READY"
+    say "MODEL_TOOL_ADMISSION=UNVERIFIED"
+    say "MODEL_ADMISSION=UNVERIFIED"
+    return 0
+  fi
+  rm -f "$model_tmp"
+  say "MODEL_DISCOVERY=BLOCKED"
+  say "MODEL_TOOL_ADMISSION=BLOCKED"
+  say "MODEL_ADMISSION=BLOCKED"
+  return 65
+}
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    checksum=$(sha256sum "$1") || return 65
+  elif command -v shasum >/dev/null 2>&1; then
+    checksum=$(shasum -a 256 "$1") || return 65
+  else
+    return 69
+  fi
+  printf '%s\n' "$checksum" | awk '{print $1}'
+}
+
+verify_managed_hashes() {
+  source_root=$1
+  destination_root=$2
+  while IFS= read -r leaf; do
+    [ -f "$destination_root/$leaf" ] && [ ! -L "$destination_root/$leaf" ] || return 65
+    source_hash=$(sha256_file "$source_root/$leaf") || return $?
+    destination_hash=$(sha256_file "$destination_root/$leaf") || return $?
+    [ "$source_hash" = "$destination_hash" ] || return 65
+  done < "$MANIFEST"
+  return 0
+}
+
+validate_loaded_tree() {
+  config_root=$1
+  actual=$(mktemp "${TMPDIR:-/tmp}/sensai-tree.XXXXXX") || return 75
+  expected=$(mktemp "${TMPDIR:-/tmp}/sensai-tree.XXXXXX") || { rm -f "$actual"; return 75; }
+  if ! (cd "$config_root" && find . \( -type f -o -type l \) -print | sed 's|^\./||' | LC_ALL=C sort) > "$actual"; then
+    rm -f "$actual" "$expected"
+    return 73
+  fi
+  { cat "$MANIFEST"; [ ! -e "$config_root/.gitignore" ] || printf '%s\n' .gitignore; } | LC_ALL=C sort > "$expected"
+  if cmp -s "$actual" "$expected" && [ -z "$(find "$config_root" -type l -print)" ]; then
+    rm -f "$actual" "$expected"
+    return 0
+  fi
+  rm -f "$actual" "$expected"
+  return 65
+}
+
+copy_payload() {
+  destination=$1
+  while IFS= read -r leaf; do
+    leaf_dir=$(dirname "$leaf")
+    if [ "$leaf_dir" != "." ]; then mkdir -p "$destination/$leaf_dir" || return 73; fi
+    cp "$ROOT/$leaf" "$destination/$leaf" || return 73
+  done < "$MANIFEST"
+}
+
+stage_payload() (
+  target=$1
+  case "$target" in
+    /*) ;;
+    *) return 73 ;;
+  esac
+  [ "$target" != "/" ] || return 73
+  [ ! -e "$target" ] && [ ! -L "$target" ] || return 73
+  validate_manifest || return 65
+
+  parent=$(dirname "$target")
+  mkdir -p "$parent" || return 73
+  [ -d "$parent" ] && [ ! -L "$parent" ] || return 73
+  work=$(mktemp -d "$parent/.sensai-stage.XXXXXX") || return 73
+  trap 'rm -rf "$work"' 0 HUP INT TERM
+  copy_payload "$work" || return $?
+  verify_managed_hashes "$ROOT" "$work" || return $?
+
+  staged_count=$(find "$work" -type f | wc -l | tr -d ' ')
+  [ "$staged_count" -eq "$EXPECTED_MANAGED_COUNT" ] || return 65
+  [ -z "$(find "$work" -type l -print)" ] || return 65
+  [ ! -e "$target" ] && [ ! -L "$target" ] || return 73
+  mv "$work" "$target" || return 73
+  trap - 0 HUP INT TERM
+  return 0
+)
+
+run_fixture() (
+  resolve_tools || return 69
+  validate_trace "$FIXTURE/trace.json" || return 65
+  temp=$(mktemp -d "${TMPDIR:-/tmp}/sensai-fixture.XXXXXX") || return 73
+  trap 'rm -rf "$temp"' 0 HUP INT TERM
+
+  "$SENSAI_FD" --type f . "$FIXTURE" >/dev/null || return 69
+  rg --no-config -n '/api/orders' "$FIXTURE" >/dev/null || return 69
+  "$SENSAI_AST" scan --rule "$ROOT/recipes/react.yml" "$FIXTURE/App.jsx" >/dev/null || return 69
+  "$SENSAI_AST" scan --rule "$ROOT/recipes/vertx.yml" "$FIXTURE/ApiVerticle.java" >/dev/null || return 69
+  yq -o=json '.' "$FIXTURE/openapi.yaml" | jq -e '.paths["/api/orders"].get.operationId == "listOrders"' >/dev/null || return 69
+  jq -e -f "$TRACE_CHECK" "$FIXTURE/trace.json" >/dev/null || return 65
+  mdq --quiet '#{2} ^"화면 목적"$' "$FIXTURE/ui-definition.ko.md" || return 69
+  mdq --quiet '#{2} ^"상호작용"$' "$FIXTURE/ui-definition.ko.md" || return 69
+  mmdc --quiet --input "$FIXTURE/sequence.mmd" --output "$temp/sequence.svg" >/dev/null || return 69
+  [ -s "$temp/sequence.svg" ] || return 69
+  say "FIXTURE=PASS"
+)
+
+readback_stage() {
+  config_root=$1
+  output=$2
+  error_output=$3
+  if ! env -u OPENCODE_CONFIG -u OPENCODE_CONFIG_CONTENT -u OPENCODE_PERMISSION \
+      OPENCODE_CONFIG_DIR="$config_root" opencode debug config > "$output" 2> "$error_output"; then
+    if grep -q 'database is locked' "$error_output"; then return 75; fi
+    return 65
+  fi
+  jq -e '
+    .model == "sensai-local/qwen3.6-35b-a3b" and
+    .small_model == "sensai-local/qwen3.5-9b" and
+    (.agent["sensai-analysis-lead"].mode == "primary") and
+    (.agent["sensai-evidence-peer"].mode == "subagent")
+  ' "$output" >/dev/null 2>&1 || return 65
+  verify_managed_hashes "$ROOT" "$config_root" || return $?
+  validate_loaded_tree "$config_root" || return $?
+  return 0
+}
+
+install_payload() (
+  target=$1
+  case "$target" in
+    /*) ;;
+    *) return 73 ;;
+  esac
+  [ "$target" != "/" ] || return 73
+  [ ! -e "$target" ] && [ ! -L "$target" ] || return 73
+
+  parent=$(dirname "$target")
+  mkdir -p "$parent" || return 73
+  [ -d "$parent" ] && [ ! -L "$parent" ] || return 73
+  lock=$parent/.sensai-install.lock
+  mkdir "$lock" 2>/dev/null || return 75
+  staged=
+  readback=
+  readback_err=
+  trap 'rm -rf "${staged:-}" "${readback:-}" "${readback_err:-}"; rmdir "$lock" 2>/dev/null || true' 0 HUP INT TERM
+
+  doctor_tools || return 69
+  doctor_models || return $?
+  staged=$parent/.sensai-install-stage.$$
+  readback=$parent/.sensai-readback.$$.json
+  readback_err=$parent/.sensai-readback.$$.err
+  [ ! -e "$staged" ] || return 73
+  stage_payload "$staged" || return $?
+  readback_stage "$staged" "$readback" "$readback_err" || return $?
+  [ ! -e "$target" ] && [ ! -L "$target" ] || return 73
+  mv "$staged" "$target" || return 73
+  rm -f "$readback" "$readback_err"
+  rmdir "$lock" 2>/dev/null || true
+  trap - 0 HUP INT TERM
+  say "INSTALL=PASS target=$target"
+  return 0
+)
+
+command=${1:-}
+case "$command" in
+  validate)
+    case $# in
+      1)
+        validate_manifest || fail 65 "payload validation failed"
+        validate_trace "$FIXTURE/trace.json" || fail 65 "fixture trace validation failed"
+        say "VALIDATE=PASS"
+        ;;
+      3)
+        [ "$2" = "trace" ] || usage
+        validate_trace "$3" || fail 65 "trace validation failed"
+        say "TRACE_VALIDATE=PASS"
+        ;;
+      *) usage ;;
+    esac
+    ;;
+  fixture)
+    [ $# -eq 1 ] || usage
+    run_fixture || fail $? "fixture validation failed"
+    ;;
+  stage)
+    [ $# -eq 2 ] || usage
+    stage_payload "$2" || fail $? "stage failed"
+    say "STAGE=PASS target=$2"
+    ;;
+  doctor)
+    [ $# -le 2 ] || usage
+    doctor_mode=${2:-default}
+    case "$doctor_mode" in
+      tools) doctor_tools || exit $? ;;
+      models) doctor_models || exit $? ;;
+      default)
+        doctor_tools || exit $?
+        doctor_models || exit $?
+        ;;
+      *) usage ;;
+    esac
+    ;;
+  install)
+    [ $# -le 2 ] || usage
+    install_target=${2:-"${HOME:?HOME is required}/.config/opencode"}
+    install_payload "$install_target" || fail $? "install failed"
+    ;;
+  *) usage ;;
+esac
