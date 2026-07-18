@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "run_id": "fixture-order-list",
   "scope": { "roots": ["fixtures/legacy-project"] },
   "evidence": [
@@ -27,6 +27,9 @@
   ],
   "joins": [
     { "id": "J-ORDER-001", "kind": "http", "method": "GET", "path_normalized": "/api/orders", "left_id": "UI-ORDERS", "right_ids": ["API-ORDERS"], "cardinality": "one_to_one", "status": "exact", "evidence_ids": ["E-REACT-001", "E-VERTX-001", "E-OPENAPI-001", "E-SPEC-001"] }
+  ],
+  "conventions": [
+    { "id": "CONV-NAMING-001", "category": "NAMING", "kind": "asis", "statement_ko": "React 화면 컴포넌트는 PascalCase로 명명한다 (예: OrdersPage).", "evidence_ids": ["E-REACT-003"], "status": "exact" }
   ],
   "unknowns": []
 }

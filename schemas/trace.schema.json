@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://wonder-sensai.local/schemas/trace.schema.json",
-  "title": "레거시 프로젝트 추적 계약",
+  "title": "레거시 프로젝트 추적 계약 (schema 2.0 — AS-IS/TO-BE 판별자 + conventions)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "run_id", "scope", "evidence", "requirements", "frontends", "backends", "joins", "unknowns"],
+  "required": ["schema_version", "run_id", "scope", "evidence", "requirements", "frontends", "backends", "joins", "conventions", "unknowns"],
   "properties": {
-    "schema_version": { "const": "1.0" },
+    "schema_version": { "const": "2.0" },
     "run_id": { "type": "string", "minLength": 1 },
     "scope": {
       "type": "object",
@@ -19,6 +19,7 @@
     "frontends": { "type": "array", "items": { "$ref": "#/$defs/frontend" } },
     "backends": { "type": "array", "items": { "$ref": "#/$defs/backend" } },
     "joins": { "type": "array", "items": { "$ref": "#/$defs/join" } },
+    "conventions": { "type": "array", "items": { "$ref": "#/$defs/convention" } },
     "unknowns": { "type": "array", "items": { "$ref": "#/$defs/unknown" } }
   },
   "$defs": {
@@ -76,6 +77,18 @@
         "id": { "$ref": "#/$defs/id" }, "kind": { "const": "http" }, "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
         "path_normalized": { "type": ["string", "null"] }, "left_id": { "$ref": "#/$defs/id" }, "right_ids": { "type": "array", "items": { "$ref": "#/$defs/id" }, "uniqueItems": true },
         "cardinality": { "enum": ["one_to_one", "many_to_many", "unresolved"] }, "status": { "enum": ["exact", "unresolved", "ambiguous", "conflict"] }, "evidence_ids": { "$ref": "#/$defs/evidenceRefs" }
+      }
+    },
+    "convention": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "category", "kind", "statement_ko", "evidence_ids", "status"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^CONV-(STACK|STRUCTURE|NAMING|API|STATE|DATAFLOW|CODINGSTD|SCAFFOLD)-[0-9]{3}$" },
+        "category": { "enum": ["STACK", "STRUCTURE", "NAMING", "API", "STATE", "DATAFLOW", "CODINGSTD", "SCAFFOLD"] },
+        "kind": { "enum": ["asis", "tobe"] },
+        "statement_ko": { "type": "string", "minLength": 1 },
+        "evidence_ids": { "$ref": "#/$defs/evidenceRefs" },
+        "status": { "enum": ["exact", "unresolved", "ambiguous", "conflict"] }
       }
     },
     "unknown": {

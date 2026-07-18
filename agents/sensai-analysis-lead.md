@@ -70,6 +70,7 @@ permission:
   skill:
     "*": deny
     sensai-evidence-first: allow
+    sensai-convention-extract: allow
     sensai-react-trace: allow
     sensai-vertx-trace: allow
     sensai-spec-evidence: allow

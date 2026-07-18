@@ -2,6 +2,7 @@ def strings_nonempty: type == "array" and length > 0 and all(.[]; type == "strin
 def unique_values: length == (unique | length);
 def status_ok: . == "exact" or . == "unresolved" or . == "ambiguous" or . == "conflict";
 def id_ok: type == "string" and test("^[A-Z][A-Z0-9_-]+$");
+def convention_id_ok: type == "string" and test("^CONV-(STACK|STRUCTURE|NAMING|API|STATE|DATAFLOW|CODINGSTD|SCAFFOLD)-[0-9]{3}$");
 def path_ok:
   type == "object" and
   (keys | sort) == ["expr", "literal", "normalized"] and
@@ -78,6 +79,15 @@ def join_shape_ok($eids; $fids; $bids):
    elif .status == "unresolved" then .cardinality == "unresolved" and (.right_ids | length) == 0
    elif .status == "ambiguous" then .cardinality == "many_to_many" and (.right_ids | length) > 1
    else true end);
+def convention_ok($eids):
+  type == "object" and
+  (keys | sort) == ["category", "evidence_ids", "id", "kind", "statement_ko", "status"] and
+  (.id | convention_id_ok) and
+  (.category | IN("STACK", "STRUCTURE", "NAMING", "API", "STATE", "DATAFLOW", "CODINGSTD", "SCAFFOLD")) and
+  (.kind | IN("asis", "tobe")) and
+  (.statement_ko | type == "string" and length > 0) and
+  (.evidence_ids | refs_ok($eids)) and
+  (.status | status_ok);
 def unknown_ok($eids):
   type == "object" and
   (keys | sort) == ["evidence_ids", "id", "next_probe", "reason", "statement_ko"] and
@@ -93,10 +103,11 @@ def unknown_ok($eids):
 ($root.frontends | map(.id)) as $fids |
 ($root.backends | map(.id)) as $bids |
 ($root.joins | map(.id)) as $jids |
+($root.conventions | map(.id)) as $cids |
 ($root.unknowns | map(.id)) as $uids |
 type == "object" and
-(keys | sort) == ["backends", "evidence", "frontends", "joins", "requirements", "run_id", "schema_version", "scope", "unknowns"] and
-.schema_version == "1.0" and
+(keys | sort) == ["backends", "conventions", "evidence", "frontends", "joins", "requirements", "run_id", "schema_version", "scope", "unknowns"] and
+.schema_version == "2.0" and
 (.run_id | type == "string" and length > 0) and
 (.scope | type == "object" and (keys == ["roots"]) and (.roots | strings_nonempty and unique_values)) and
 (.evidence | type == "array" and length > 0 and all(.[]; evidence_ok)) and
@@ -109,9 +120,11 @@ type == "object" and
 ($bids | unique_values) and
 (.joins | type == "array" and all(.[]; join_shape_ok($eids; $fids; $bids))) and
 ($jids | unique_values) and
+(.conventions | type == "array" and all(.[]; convention_ok($eids))) and
+($cids | unique_values) and
 (.unknowns | type == "array" and all(.[]; unknown_ok($eids))) and
 ($uids | unique_values) and
-([ $eids[], $rids[], $fids[], $bids[], $jids[], $uids[] ] | unique_values) and
+([ $eids[], $rids[], $fids[], $bids[], $jids[], $cids[], $uids[] ] | unique_values) and
 all($root.joins[];
   . as $join |
   if $join.status == "exact" then
