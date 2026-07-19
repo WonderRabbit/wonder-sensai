@@ -1,0 +1,65 @@
+#!/bin/sh
+# sensai-resume — 세션 재개: STATUS + Linear 진행중 티켓 + plan/todo 남은 항목 취합.
+# H1(런타임 의존 제로): /bin/sh + jq + curl(선택) + grep + awk. Node/TS 없음.
+# 끊겨도 이 스크립트 하나면 "어디서 멈췄는지" 파악.
+#
+# 사용: ./bin/sensai-resume  (또는 bin/sensai resume)
+# Linear: ~/.claude.json의 LINEAR_API_KEY 또는 env LINEAR_API_KEY. 없으면 STATUS/todo만.
+set -u
+
+ROOT=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
+PROJ=ea39a8a8-2269-4901-8e2c-5ea19be60095
+say() { printf '%s\n' "$*"; }
+
+# Linear key: ~/.claude.json 우선, env 폴백
+linear_key=$(jq -r '.mcpServers.linear.env.LINEAR_API_KEY // empty' "${HOME}/.claude.json" 2>/dev/null)
+{ [ -n "$linear_key" ] && [ "$linear_key" != "null" ]; } || linear_key="${LINEAR_API_KEY:-}"
+
+say "=== wonder-sensai resume ==="
+say ""
+
+# 1) STATUS.md 현재 위치 섹션
+if [ -f "$ROOT/STATUS.md" ]; then
+  say "■ STATUS ($ROOT/STATUS.md)"
+  awk '/^## 📍 현재 위치/{f=1;next} /^## /{if(f)exit} f{print "  "$0}' "$ROOT/STATUS.md"
+  say ""
+fi
+
+# 2) plan/todo 진척도 ([x]/[ ] 카운트)
+if [ -d "$ROOT/plan/todo" ]; then
+  say "■ todo 진척도 (plan/todo/)"
+  for f in "$ROOT"/plan/todo/*.md; do
+    [ -f "$f" ] || continue
+    name=$(basename "$f" .md)
+    dn=$(grep -c '^- \[x\]' "$f" 2>/dev/null) || dn=0
+    tn=$(grep -c '^- \[ \]' "$f" 2>/dev/null) || tn=0
+    if [ "$tn" -gt 0 ]; then mark="◀ 진행중(남음 $tn)"
+    elif [ "$dn" -gt 0 ]; then mark="✓ 완료"
+    else mark="-"; fi
+    printf "  %-32s [x]=%s [ ]=%s  %s\n" "$name" "$dn" "$tn" "$mark"
+  done
+  say ""
+fi
+
+# 3) Linear Wonder-Sensai 진행중 티켓 (priority 순, 미완료)
+if [ -n "$linear_key" ] && command -v curl >/dev/null 2>&1; then
+  say "■ Linear Wonder-Sensai (priority 순, Done/Cancelled 제외)"
+  payload=$(jq -n --arg pid "$PROJ" \
+    '{query:"query($pid: String!) { project(id: $pid) { issues { nodes { identifier title priority state { name } } } } }",
+      variables:{pid:$pid}}')
+  echo "$payload" | curl -s --max-time 10 -X POST https://api.linear.app/graphql \
+    -H "Authorization: $linear_key" -H "Content-Type: application/json" -d @- \
+  | jq -r '
+      .data.project.issues.nodes
+      | sort_by(.priority)
+      | map(select(.state.name != "Done" and .state.name != "Canceled"))
+      | .[]
+      | "  \(.identifier) [P\(.priority)] [\(.state.name)] \(.title)"' 2>/dev/null | head -25
+  say ""
+else
+  say "■ Linear: LINEAR_API_KEY 또는 curl 없음 — STATUS.md + todo로 파악"
+  say ""
+fi
+
+say "다음 액션: STATUS.md § 'R1 남은 작업' (우선순위 순)."
+say "끊기면 재실행: ./bin/sensai-resume"

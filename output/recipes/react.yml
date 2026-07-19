@@ -1,0 +1,21 @@
+id: sensai-react-candidate
+language: JavaScript
+severity: warning
+message: React 경로, 상태 또는 호출 후보를 확인한다.
+rule:
+  any:
+    - pattern: <Route $$$ATTRS />
+    - pattern: <Route $$$ATTRS>$$$CHILDREN</Route>
+    - pattern: createBrowserRouter($ROUTES)
+    - pattern: useRoutes($ROUTES)
+    - pattern: fetch($$$ARGS)
+    - pattern: axios.get($$$ARGS)
+    - pattern: axios.post($$$ARGS)
+    - pattern: axios.put($$$ARGS)
+    - pattern: axios.patch($$$ARGS)
+    - pattern: axios.delete($$$ARGS)
+    - pattern: useState($INIT)
+    - pattern: React.useState($INIT)
+    - pattern: useReducer($REDUCER, $INIT)
+    - pattern: React.useReducer($REDUCER, $INIT)
+note: 후보를 의미 연결로 확정하기 전에 import, 정의, 리터럴과 path:line을 확인한다.

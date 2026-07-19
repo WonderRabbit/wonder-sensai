@@ -5,7 +5,7 @@ ROOT=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
 MANIFEST=$ROOT/manifest.txt
 TRACE_CHECK=$ROOT/recipes/trace.jq
 FIXTURE=$ROOT/fixtures/legacy-project
-EXPECTED_MANAGED_COUNT=15
+EXPECTED_MANAGED_COUNT=34
 
 say() { printf '%s\n' "$*"; }
 fail() { code=$1; shift; say "ERROR $*" >&2; exit "$code"; }
@@ -93,48 +93,23 @@ doctor_tools() {
 }
 
 doctor_models() {
-  if [ -z "${SENSAI_QWEN_BASE_URL:-}" ] || [ -z "${SENSAI_QWEN_API_KEY:-}" ]; then
-    say "MODEL_DISCOVERY=BLOCKED"
-    say "MODEL_TOOL_ADMISSION=BLOCKED"
-    say "MODEL_ADMISSION=BLOCKED"
-    return 69
-  fi
-  command -v curl >/dev/null 2>&1 || { say "MODEL_DISCOVERY=BLOCKED"; say "MODEL_TOOL_ADMISSION=BLOCKED"; say "MODEL_ADMISSION=BLOCKED"; return 69; }
+  command -v opencode >/dev/null 2>&1 || { say "MODEL_DISCOVERY=BLOCKED"; say "MODEL_TOOL_ADMISSION=BLOCKED"; say "MODEL_ADMISSION=BLOCKED"; return 69; }
   command -v jq >/dev/null 2>&1 || { say "MODEL_DISCOVERY=BLOCKED"; say "MODEL_TOOL_ADMISSION=BLOCKED"; say "MODEL_ADMISSION=BLOCKED"; return 69; }
+  command -v curl >/dev/null 2>&1 || { say "MODEL_DISCOVERY=BLOCKED"; say "MODEL_TOOL_ADMISSION=BLOCKED"; say "MODEL_ADMISSION=BLOCKED"; return 69; }
+  auth_json="${OPENCODE_AUTH_FILE:-$HOME/.local/share/opencode/auth.json}"
+  { [ -f "$auth_json" ] && jq -e '.zai' "$auth_json" >/dev/null 2>&1; } || { say "MODEL_DISCOVERY=BLOCKED"; say "MODEL_TOOL_ADMISSION=BLOCKED"; say "MODEL_ADMISSION=BLOCKED"; return 69; }
+  curl -fsS --max-time 5 http://localhost:11434/v1/models >/dev/null 2>&1 || { say "MODEL_DISCOVERY=BLOCKED"; say "MODEL_TOOL_ADMISSION=BLOCKED"; say "MODEL_ADMISSION=BLOCKED"; return 69; }
 
-  model_tmp=$(mktemp "${TMPDIR:-/tmp}/sensai-models.XXXXXX") || return 75
-  if ! curl -fsS --max-time 15 -H "Authorization: Bearer $SENSAI_QWEN_API_KEY" "${SENSAI_QWEN_BASE_URL%/}/models" > "$model_tmp"; then
-    rm -f "$model_tmp"
-    say "MODEL_DISCOVERY=BLOCKED"
-    say "MODEL_TOOL_ADMISSION=BLOCKED"
-    say "MODEL_ADMISSION=BLOCKED"
-    return 75
-  fi
-  if ! jq -e 'type == "object" and (.data | type == "array") and all(.data[]; type == "object" and (.id | type == "string"))' "$model_tmp" >/dev/null 2>&1; then
-    rm -f "$model_tmp"
-    say "MODEL_DISCOVERY=INVALID"
-    say "MODEL_TOOL_ADMISSION=BLOCKED"
-    say "MODEL_ADMISSION=BLOCKED"
-    return 65
-  fi
-  if jq -e '
-      (.data // []) as $models |
-      any($models[]; .id == "qwen3.6-35b-a3b") and
-      any($models[]; .id == "qwen3.5-9b")
-    ' "$model_tmp" >/dev/null 2>&1; then
-    rm -f "$model_tmp"
-    say "MODEL_ALIAS_35B=qwen3.6-35b-a3b"
-    say "MODEL_ALIAS_9B=qwen3.5-9b"
-    say "MODEL_DISCOVERY=READY"
-    say "MODEL_TOOL_ADMISSION=UNVERIFIED"
-    say "MODEL_ADMISSION=UNVERIFIED"
-    return 0
-  fi
-  rm -f "$model_tmp"
-  say "MODEL_DISCOVERY=BLOCKED"
-  say "MODEL_TOOL_ADMISSION=BLOCKED"
-  say "MODEL_ADMISSION=BLOCKED"
-  return 65
+  models_out=$(opencode models 2>/dev/null)
+  printf '%s\n' "$models_out" | rg -q '^zai/glm-5\.2$' || { say "MODEL_ALIAS_LEAD=MISSING"; say "MODEL_DISCOVERY=BLOCKED"; say "MODEL_TOOL_ADMISSION=BLOCKED"; say "MODEL_ADMISSION=BLOCKED"; return 65; }
+  printf '%s\n' "$models_out" | rg -q '^sensai-ollama/qwen3\.5:9b$' || { say "MODEL_ALIAS_PEER=MISSING"; say "MODEL_DISCOVERY=BLOCKED"; say "MODEL_TOOL_ADMISSION=BLOCKED"; say "MODEL_ADMISSION=BLOCKED"; return 65; }
+
+  say "MODEL_ALIAS_LEAD=zai/glm-5.2"
+  say "MODEL_ALIAS_PEER=sensai-ollama/qwen3.5:9b"
+  say "MODEL_DISCOVERY=READY"
+  say "MODEL_TOOL_ADMISSION=UNVERIFIED"
+  say "MODEL_ADMISSION=UNVERIFIED"
+  return 0
 }
 
 sha256_file() {
@@ -242,8 +217,8 @@ readback_stage() {
     return 65
   fi
   jq -e '
-    .model == "sensai-local/qwen3.6-35b-a3b" and
-    .small_model == "sensai-local/qwen3.5-9b" and
+    .model == "zai/glm-5.2" and
+    .small_model == "sensai-ollama/qwen3.5:9b" and
     (.agent["sensai-analysis-lead"].mode == "primary") and
     (.agent["sensai-evidence-peer"].mode == "subagent")
   ' "$output" >/dev/null 2>&1 || return 65

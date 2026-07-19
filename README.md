@@ -15,20 +15,26 @@
 
 두 모델 이름은 [Qwen3.6-35B-A3B model card](https://huggingface.co/Qwen/Qwen3.6-35B-A3B)와 [Qwen3.5-9B model card](https://huggingface.co/Qwen/Qwen3.5-9B)의 식별자를 사용한다. 실제 서빙 alias는 별도의 입학 검사를 통과해야 한다.
 
-세 command는 결과 단계에 대응한다.
+아홉 command는 파이프라인 단계 + 워크플로우에 대응한다.
 
-- `/sensai/analyze`: 제한된 React·Vert.x·명세 범위를 canonical trace와 근거로 분석한다.
-- `/sensai/design`: 검증된 trace로 한국어 UI 정의서와 Mermaid 원본을 만든다.
-- `/sensai/verify`: 스키마, 인용, 참조 무결성, `UNKNOWN`, 모순·모호성 보존과 실제 Mermaid 렌더를 검사한다.
+- `/sensai/analyze`: A0–A5 게이트로 기술 분석(스택 미가정·발견 기반). 컨벤션 추출.
+- `/sensai/analyze-business`: B0–B5 게이트로 비즈니스 심층 분석. 엔티티·규칙·흐름·용어사전.
+- `/sensai/design`: W0–W4 게이트로 AS-IS 산출(UI 정의서·시퀀스·데이터플로우·스토리, `kind:asis`).
+- `/sensai/verify`: 스키마·인용·참조 무결성·`UNKNOWN`·모순 보존·Mermaid 렌더 검증.
+- `/sensai/change-design`: D0–D5 게이트로 TO-BE 변경 설계(`designs`·`bindings`, 일관성 게이트).
+- `/sensai/deliver`: V0–V5 게이트로 TO-BE 산출(5종 + 테스트, `kind:tobe`).
+- `/sensai/run`: F0–F5 미션 전체 흐름 운영 + 컨펌 게이트(HITL).
+- `/sensai/resume`: 미션 재개(progress + precondition 검증).
+- `/sensai/status`: 미션 전체 뷰(진행률·blocking·next).
 
-여섯 skill은 서로 겹치지 않는 계약이다.
+열다섯 skill은 서로 겹치지 않는 계약이다. 모두 `sensai-evidence-first`를 선행한다.
 
-- `sensai-evidence-first`: 후보와 확인된 사실을 분리하고 모든 주장에 근거를 요구한다.
-- `sensai-react-trace`: JSX/TSX 구조, handler, 상태, literal API 호출을 추적한다.
-- `sensai-vertx-trace`: Router, handler, event-bus, 비동기 경계를 추적한다.
-- `sensai-spec-evidence`: OpenAPI와 IETF 요구사항의 원문 modality와 식별자를 보존한다. 여기서 RFC는 SAP Remote Function Call을 뜻하지 않는다.
-- `sensai-ui-definition`: canonical trace를 한국어 UI 정의서로 투영한다.
-- `sensai-mermaid-sequence`: 확인된 message·requirement ID만 Mermaid 화살표로 투영한다.
+- **공통 기둥**: `sensai-evidence-first` — 후보/확정 분리, 근거 강제, 미확정 `UNKNOWN` 보존.
+- **분석(01/02)**: `sensai-stack-discovery`(A1 스택 식별, 매니페스트 근거) · `sensai-convention-extract`(A3, 7 category) · `sensai-business-trace`(B0–B5, 엔티티·규칙·흐름·용어사전).
+- **산출(03/05)**: `sensai-ui-definition` · `sensai-mermaid-sequence` · `sensai-dataflow-chart` · `sensai-user-story` · `sensai-test-scenario`.
+- **TO-BE(04)**: `sensai-requirement-analyze`(D1–D2 수정요청) · `sensai-change-design`(D3, 일관성 게이트 binding).
+- **가속기(식별된 스택만)**: `sensai-react-trace` · `sensai-vertx-trace` · `sensai-spec-evidence`(OpenAPI/RFC 2119/8174).
+- **품질**: `sensai-checklist`(R6 게이트 체크리스트).
 
 ## 도구와 사실 계약
 
@@ -76,9 +82,7 @@ OpenCode와 위 표의 CLI를 설치한 뒤 저장소 루트에서 다음 순서
 ```sh
 ./bin/sensai doctor tools
 
-export SENSAI_QWEN_BASE_URL='http://127.0.0.1:8000/v1'
-export SENSAI_QWEN_API_KEY='replace-with-local-secret'
-./bin/sensai doctor models
+./bin/sensai doctor models   # zai/glm-5.2(opencode auth) + sensai-ollama/qwen3.5:9b(ollama localhost)
 
 stage="$(mktemp -d)/opencode"
 ./bin/sensai stage "$stage"
@@ -86,22 +90,34 @@ OPENCODE_CONFIG_DIR="$stage" opencode debug config
 OPENCODE_CONFIG_DIR="$stage" opencode
 ```
 
-격리된 OpenCode 세션에서 다음처럼 단계별로 실행한다.
+격리된 OpenCode 세션에서 다음처럼 실행한다. 전체 흐름은 `/sensai/run`(F0–F5, 컨펌 게이트)이고, 단계별로도 가능하다.
 
 ```text
-/sensai/analyze scope=src output=docs/analysis/trace.json
-/sensai/design evidence=docs/analysis/trace.json output=docs/analysis
-/sensai/verify target=docs/analysis
+# 전체 미션(F0-F5, HITL 컨펌 게이트 포함)
+/sensai/run scope=<코드베이스 root> goal="<미션 목표>"
+
+# 또는 단계별
+/sensai/analyze scope=<root> output=docs/analysis/trace.json           # 01 기술(A0-A5)
+/sensai/analyze-business scope=<root> output=docs/analysis/trace.json  # 02 비즈니스(B0-B5, 01과 병렬)
+/sensai/design evidence=docs/analysis/trace.json output=docs/analysis  # 03 AS-IS 산출(W0-W4)
+/sensai/verify target=docs/analysis                                    # 검증
+# AS-IS 사람 accept 후 TO-BE
+/sensai/change-design ...                                              # 04 TO-BE 설계(D0-D5)
+/sensai/deliver ...                                                    # 05 TO-BE 산출(V0-V5)
+/sensai/status                                                         # 전체 뷰
+/sensai/resume <mission>                                               # 중단 후 재개(O5)
 ```
+
+입력이 비었거나 출력이 `docs/analysis/` 밖을 가리키면 command는 쓰지 않고 누락 필드와 차단 원인을 보고한다.
 
 입력이 비었거나 출력이 `docs/analysis/` 밖을 가리키면 command는 쓰지 않고 누락 필드와 차단 원인을 보고해야 한다.
 
 ## 모델 별칭 확인과 라이브 입학
 
-`opencode.json`은 [OpenAI-compatible provider 설정](https://opencode.ai/docs/providers/#openai-compatible)의 `provider/model-id` 형식을 사용한다. `./bin/sensai doctor models`는 환경 변수와 `/models` 응답에서 다음 두 exact alias가 보이는지만 확인한다.
+`opencode.json`은 [OpenAI-compatible provider 설정](https://opencode.ai/docs/providers/#openai-compatible)의 `provider/model-id` 형식을 사용한다. `./bin/sensai doctor models`는 다음 두 exact alias가 보이는지만 확인한다 (lead는 opencode auth Z.AI credential, peer는 ollama localhost).
 
-- `qwen3.6-35b-a3b`
-- `qwen3.5-9b`
+- `zai/glm-5.2` (lead)
+- `sensai-ollama/qwen3.5:9b` (peer)
 
 부분 문자열이나 표시 이름은 인정하지 않는다. 이 검사가 성공해도 모델 응답, tool call, streaming, structured output이 검증된 것은 아니다. 두 모델의 thinking on/off, streaming on/off, 단일·연속 tool call, malformed call 거부를 포함한 라이브 행렬은 외부 endpoint와 자격 증명이 필요한 미검증 입학 조건으로 남아 있다. secret은 파일, 로그, trace에 기록하지 않는다.
 

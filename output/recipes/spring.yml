@@ -1,0 +1,19 @@
+id: sensai-spring-candidate
+language: Java
+severity: warning
+message: Spring 컴포넌트·HTTP 매핑 후보를 확인한다.
+rule:
+  any:
+    - pattern: '@RestController'
+    - pattern: '@Controller'
+    - pattern: '@Service'
+    - pattern: '@Repository'
+    - pattern: '@Component'
+    - pattern: '@GetMapping($PATH)'
+    - pattern: '@PostMapping($PATH)'
+    - pattern: '@PutMapping($PATH)'
+    - pattern: '@PatchMapping($PATH)'
+    - pattern: '@DeleteMapping($PATH)'
+    - pattern: '@RequestMapping($PATH)'
+    - pattern: '@Autowired($$$ARGS)'
+note: 공식 Spring Web 패턴 시드. 후보를 확정하기 전에 컴포넌트 타입, HTTP 메서드, 경로, 의존 주입과 path:line을 확인한다. 회사 코드베이스 실제 패턴에 맞춰 커스텀한다.

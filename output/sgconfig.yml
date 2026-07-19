@@ -1,0 +1,8 @@
+# sgconfig.yml — ast-grep 프로젝트 config (I5 seed + learned)
+# 하네스 seed 규칙(recipes/) + 분석 대상 learned 규칙(rules/) 자동 적용.
+# sg scan 이 ruleDirs 내 모든 .yml 자동 발견/적용.
+# 출처: https://ast-grep.github.io/guide/scan-project.html
+ruleDirs:
+  - recipes   # 하네스 seed(react/vertx/spring.yml)
+  - rules     # 분석 대상 learned(learned-<stack>-<cat>-<NNN>.yml, 성장 하네스 I5 §3.2)
+# rules/ 는 분석 대상에서 A3.1 컨벤션→규칙 변환 시 생성/갱신.

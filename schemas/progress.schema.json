@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wonder-sensai.local/schemas/progress.schema.json",
+  "title": "mission progress (O5)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mission_id", "target", "goal", "pipeline_position", "completed", "next", "preconditions"],
+  "properties": {
+    "mission_id": { "type": "string", "minLength": 1 },
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["roots"],
+      "properties": { "roots": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true } }
+    },
+    "goal": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "minLength": 1 },
+    "updated_at": { "type": "string", "minLength": 1 },
+    "source_session_id": { "type": "string" },
+    "pipeline_position": { "type": "string", "minLength": 1 },
+    "completed": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "todo_snapshot": { "type": "object", "additionalProperties": true },
+    "preconditions": {
+      "type": "object", "additionalProperties": true,
+      "description": "재개 전 검증 항목: git HEAD, trace.json hash, 필수 파일 존재, 모델/도구 버전"
+    },
+    "next": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "resume_context": { "type": "object", "additionalProperties": true, "description": "원장/파일 포인터 + 적용 옵션·교훈 (전체 컨텍스트 아님)" },
+    "blocked": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+  }
+}

@@ -1,0 +1,50 @@
+#!/bin/sh
+# sensai-ticket — Linear 티켓 상태 관리. 작업 시작/완료 시 상태 동기화.
+# H1: /bin/sh + jq + curl. Node/TS 없음.
+# 사용:
+#   ./bin/sensai-ticket start SNO-7    # → In Progress
+#   ./bin/sensai-ticket done SNO-7     # → Done
+#   ./bin/sensai-ticket list          # 진행중 티켓 (sensai-resume 호출)
+set -u
+
+TEAM=023c0420-b971-4b68-b9e9-fadd653dbae7
+PROJ=ea39a8a8-2269-4901-8e2c-5ea19be60095
+STATE_IN_PROGRESS=9215cc9f-2f92-4ff4-b767-a306ac456516
+STATE_DONE=c72b5b9c-0966-4fa5-affd-b33a514ee825
+API=https://api.linear.app/graphql
+say() { printf '%s\n' "$*"; }
+
+key=$(jq -r '.mcpServers.linear.env.LINEAR_API_KEY // empty' "${HOME}/.claude.json" 2>/dev/null)
+{ [ -n "$key" ] && [ "$key" != "null" ]; } || key="${LINEAR_API_KEY:-}"
+[ -n "$key" ] || { say "ERROR: LINEAR_API_KEY 없음 (~/.claude.json 또는 env)" >&2; exit 69; }
+command -v curl >/dev/null 2>&1 || { say "ERROR: curl 없음" >&2; exit 69; }
+
+# identifier(SNO-X) → UUID
+resolve_id() {
+  jq -n --arg pid "$PROJ" \
+    '{query:"query($pid:String!){ project(id:$pid){ issues{ nodes{ identifier id }}}}",variables:{pid:$pid}}' \
+  | curl -s --max-time 10 -X POST "$API" -H "Authorization: $key" -H "Content-Type: application/json" -d @- \
+  | jq -r --arg ident "$1" '.data.project.issues.nodes[] | select(.identifier==$ident) | .id' | head -1
+}
+
+set_state() {
+  jq -n --arg id "$1" --arg s "$2" \
+    '{query:"mutation($id:String!,$input:IssueUpdateInput!){issueUpdate(id:$id,input:$input){success issue{identifier state{name}}}}",variables:{id:$id,input:{stateId:$s}}}' \
+  | curl -s --max-time 10 -X POST "$API" -H "Authorization: $key" -H "Content-Type: application/json" -d @- \
+  | jq -r --arg l "$3" '"\(.data.issueUpdate.issue.identifier // "FAIL") → \(.data.issueUpdate.issue.state.name // "ERR") [\($l)]"'
+}
+
+[ $# -ge 1 ] || { say "usage: sensai-ticket start SNO-X | done SNO-X | list"; exit 64; }
+case "$1" in
+  start)
+    [ $# -eq 2 ] || { say "usage: sensai-ticket start SNO-X"; exit 64; }
+    uuid=$(resolve_id "$2"); [ -n "$uuid" ] || { say "ERROR: $2 못 찾음"; exit 65; }
+    set_state "$uuid" "$STATE_IN_PROGRESS" "In Progress" ;;
+  done)
+    [ $# -eq 2 ] || { say "usage: sensai-ticket done SNO-X"; exit 64; }
+    uuid=$(resolve_id "$2"); [ -n "$uuid" ] || { say "ERROR: $2 못 찾음"; exit 65; }
+    set_state "$uuid" "$STATE_DONE" "Done" ;;
+  list)
+    exec "$(dirname "$0")/sensai-resume" ;;
+  *) say "usage: sensai-ticket start SNO-X | done SNO-X | list"; exit 64 ;;
+esac

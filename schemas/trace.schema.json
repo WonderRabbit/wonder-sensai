@@ -20,7 +20,17 @@
     "backends": { "type": "array", "items": { "$ref": "#/$defs/backend" } },
     "joins": { "type": "array", "items": { "$ref": "#/$defs/join" } },
     "conventions": { "type": "array", "items": { "$ref": "#/$defs/convention" } },
-    "unknowns": { "type": "array", "items": { "$ref": "#/$defs/unknown" } }
+    "unknowns": { "type": "array", "items": { "$ref": "#/$defs/unknown" } },
+    "unsupported": { "type": "array", "items": { "$ref": "#/$defs/unsupported" } },
+    "business_entities": { "type": "array", "items": { "$ref": "#/$defs/business_fact" } },
+    "business_rules": { "type": "array", "items": { "$ref": "#/$defs/business_fact" } },
+    "business_flows": { "type": "array", "items": { "$ref": "#/$defs/business_fact" } },
+    "business_events": { "type": "array", "items": { "$ref": "#/$defs/business_fact" } },
+    "business_states": { "type": "array", "items": { "$ref": "#/$defs/business_fact" } },
+    "business_invariants": { "type": "array", "items": { "$ref": "#/$defs/business_fact" } },
+    "designs": { "type": "array", "items": { "$ref": "#/$defs/design" } },
+    "bindings": { "type": "array", "items": { "$ref": "#/$defs/binding" } },
+    "extension_requirements": { "type": "array", "items": { "$ref": "#/$defs/extension_requirement" } }
   },
   "$defs": {
     "id": { "type": "string", "pattern": "^[A-Z][A-Z0-9_-]+$" },
@@ -81,19 +91,75 @@
     },
     "convention": {
       "type": "object", "additionalProperties": false,
-      "required": ["id", "category", "kind", "statement_ko", "evidence_ids", "status"],
+      "required": ["id", "kind", "category", "statement_ko", "examples", "evidence_ids", "status", "extractor"],
       "properties": {
-        "id": { "type": "string", "pattern": "^CONV-(STACK|STRUCTURE|NAMING|API|STATE|DATAFLOW|CODINGSTD|SCAFFOLD)-[0-9]{3}$" },
-        "category": { "enum": ["STACK", "STRUCTURE", "NAMING", "API", "STATE", "DATAFLOW", "CODINGSTD", "SCAFFOLD"] },
+        "id": { "type": "string", "pattern": "^CONV-(STACK|STRUCTURE|NAMING|API|STATE|CODINGSTD|SCAFFOLD)-[0-9]{3}$" },
         "kind": { "enum": ["asis", "tobe"] },
+        "category": { "enum": ["stack", "structure", "naming", "api_pattern", "state", "coding_standard", "scaffold_pattern"] },
         "statement_ko": { "type": "string", "minLength": 1 },
+        "examples": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
         "evidence_ids": { "$ref": "#/$defs/evidenceRefs" },
-        "status": { "enum": ["exact", "unresolved", "ambiguous", "conflict"] }
+        "status": { "enum": ["exact", "unresolved", "ambiguous", "conflict"] },
+        "extractor": { "type": "string", "minLength": 1 }
       }
     },
     "unknown": {
       "type": "object", "additionalProperties": false, "required": ["id", "statement_ko", "reason", "next_probe", "evidence_ids"],
       "properties": { "id": { "$ref": "#/$defs/id" }, "statement_ko": { "type": "string", "minLength": 1 }, "reason": { "type": "string", "minLength": 1 }, "next_probe": { "type": "string", "minLength": 1 }, "evidence_ids": { "$ref": "#/$defs/evidenceRefs" } }
+    },
+    "unsupported": {
+      "type": "object", "additionalProperties": false, "required": ["id", "statement_ko", "reason"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "statement_ko": { "type": "string", "minLength": 1 }, "reason": { "type": "string", "minLength": 1 } }
+    },
+    "business_fact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "category", "statement_ko", "evidence_ids", "status"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^BIZ-(ENT|RULE|FLOW|EVT|STATE|INV)-[0-9]{3}$" },
+        "kind": { "enum": ["asis", "tobe"] },
+        "category": { "enum": ["business_entity", "business_rule", "business_flow", "business_event", "business_state", "business_invariant"] },
+        "statement_ko": { "type": "string", "minLength": 1 },
+        "identifiers": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "evidence_ids": { "$ref": "#/$defs/evidenceRefs" },
+        "status": { "enum": ["exact", "unresolved", "ambiguous", "conflict"] }
+      }
+    },
+    "design": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "type", "statement_ko", "requirement_ids", "follows_convention_ids", "follows_business_ids", "evidence_ids", "status"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^DESIGN-(PAGE|SERVICE|API|ENTITY)-[0-9]{3}$" },
+        "kind": { "enum": ["tobe"] },
+        "type": { "enum": ["page", "service", "api", "entity"] },
+        "statement_ko": { "type": "string", "minLength": 1 },
+        "requirement_ids": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "follows_convention_ids": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "follows_business_ids": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "evidence_ids": { "$ref": "#/$defs/evidenceRefs" },
+        "status": { "enum": ["exact", "unresolved", "ambiguous", "conflict"] }
+      }
+    },
+    "binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["design_id", "target_kind", "target_id", "gate"],
+      "properties": {
+        "design_id": { "type": "string", "minLength": 1 },
+        "target_kind": { "enum": ["convention", "business"] },
+        "target_id": { "type": "string", "minLength": 1 },
+        "gate": { "enum": ["pass", "violation"] }
+      }
+    },
+    "extension_requirement": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "statement_ko", "source", "evidence_ids", "status"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^REQ-EXT-[0-9]{4}$" },
+        "statement_ko": { "type": "string", "minLength": 1 },
+        "source": { "enum": ["user", "elicited", "inferred"] },
+        "keyword": { "enum": ["MUST", "MUST NOT", "SHOULD", "SHOULD NOT", "MAY"] },
+        "evidence_ids": { "$ref": "#/$defs/evidenceRefs" },
+        "status": { "enum": ["exact", "unresolved", "ambiguous", "conflict"] }
+      }
     }
   }
 }
